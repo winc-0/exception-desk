@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: desk_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置}
+      POSTGRES_DB: exception_desk
+      DESK_APP_PASSWORD: ${DESK_APP_PASSWORD:?请在 .env 中设置}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./docker/postgres/init-roles.sh:/docker-entrypoint-initdb.d/init-roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U desk_owner -d exception_desk"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    build: ./backend
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DESK_MIGRATION_DATABASE_URL: postgresql+asyncpg://desk_owner:${POSTGRES_PASSWORD}@db/exception_desk
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: ./backend
+    environment:
+      DESK_DATABASE_URL: postgresql+asyncpg://desk_app:${DESK_APP_PASSWORD}@db/exception_desk
+      DESK_JWT_SECRET: ${DESK_JWT_SECRET:?请在 .env 中设置}
+      DESK_ALLOWED_ORIGINS: ${DESK_ALLOWED_ORIGINS:?请在 .env 中设置}
+      DESK_COOKIE_SECURE: ${DESK_COOKIE_SECURE:-true}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    build: ./frontend
+    ports:
+      - "${DESK_HTTP_PORT:-8080}:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  db_data:
