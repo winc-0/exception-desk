@@ -2,12 +2,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from langchain_openai import ChatOpenAI
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import Settings, get_settings
-from app.routers import attachments, auth, claims, members, tickets
+from app.routers import ai, attachments, auth, claims, members, tickets
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
@@ -26,6 +27,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = engine
     # commit 后不让对象过期：提交后 RLS 的租户设置已失效，不能再回库刷新
     app.state.sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+
+    app.state.chat_model = None
+    if settings.llm_api_key and settings.llm_model:
+        app.state.chat_model = ChatOpenAI(
+            model=settings.llm_model,
+            api_key=settings.llm_api_key,
+            base_url=settings.llm_base_url or None,
+            timeout=settings.llm_timeout_seconds,
+            max_retries=1,
+            temperature=0.2,
+        )
 
     @app.middleware("http")
     async def reject_cross_origin_writes(request: Request, call_next):
@@ -54,4 +66,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(tickets.router)
     app.include_router(attachments.router)
     app.include_router(claims.router)
+    app.include_router(ai.router)
     return app

@@ -40,7 +40,7 @@ async def _ticket(client, type="damaged", tracking_number="SF1"):
 
 
 async def _add_evidence(client, ticket_id, categories=None):
-    categories = categories or ("label_photo", "package_photo", "damage_photo")
+    categories = categories or ("label_photo", "package_photo", "damage_photo", "value_proof")
     for index, category in enumerate(categories):
         response = await client.post(
             f"/api/tickets/{ticket_id}/attachments",
@@ -119,7 +119,8 @@ def test_only_managers_are_offered_paid():
         ("preparing", "submitted", {"claim_amount_cents": 1, "missing_evidence": ["面单"]}, 422),
         ("submitted", "approved", {}, 422),
         ("submitted", "approved", {"claim_amount_cents": 100, "approved_cents": 101}, 422),
-        ("submitted", "rejected", {"note": "  "}, 422),
+        ("submitted", "rejected", {}, 422),
+        ("submitted", "rejected", {"rejection_code": "other", "note": "  "}, 422),
         ("approved", "paid", {"can_manage": False, "paid_cents": 1}, 403),
         ("approved", "paid", {"current_approved_cents": 100, "paid_cents": 101}, 422),
     ],
@@ -204,17 +205,19 @@ async def test_submitted_claim_locks_evidence_until_rejected(team):
     assert (await client.post(url, json={"reason": "x"})).status_code == 409
 
     # 被拒后可以调整材料，并且可以补充上传
-    rejected = await _move(client, ticket_id, claim["version"], "rejected", note="外包装完好不赔")
-    assert rejected.json()["claim"]["rejection_reason"] == "外包装完好不赔"
+    rejected = await _move(
+        client, ticket_id, claim["version"], "rejected", rejection_code="packaging_intact"
+    )
+    assert rejected.json()["claim"]["rejection_code"] == "packaging_intact"
     assert (await client.post(url, json={"reason": "重新拍"})).status_code == 200
 
 
 async def test_rejected_claim_can_be_resubmitted_with_reason(team):
     client = team["agent"]
     ticket_id, claim = await _submitted(client)
-    claim = (await _move(client, ticket_id, claim["version"], "rejected", note="未保价")).json()[
-        "claim"
-    ]
+    claim = (
+        await _move(client, ticket_id, claim["version"], "rejected", rejection_code="uninsured")
+    ).json()["claim"]
 
     assert (await _move(client, ticket_id, claim["version"], "submitted")).status_code == 422
     response = await _move(
@@ -245,7 +248,11 @@ async def test_edit_only_while_preparing_or_rejected(team):
     frozen = await client.patch(url, json={"version": claim["version"], "carrier": "中通"})
     assert frozen.status_code == 409
 
-    claim = (await _move(client, ticket_id, claim["version"], "rejected", note="x")).json()["claim"]
+    claim = (
+        await _move(
+            client, ticket_id, claim["version"], "rejected", rejection_code="other", note="x"
+        )
+    ).json()["claim"]
     response = await client.patch(
         url,
         json={
@@ -274,7 +281,9 @@ async def test_edit_only_while_preparing_or_rejected(team):
 async def test_stale_version_is_rejected(team):
     client = team["agent"]
     ticket_id, claim = await _submitted(client)
-    first = await _move(client, ticket_id, claim["version"], "rejected", note="x")
+    first = await _move(
+        client, ticket_id, claim["version"], "rejected", rejection_code="other", note="x"
+    )
     assert first.status_code == 200
     stale = await _move(client, ticket_id, claim["version"], "withdrawn", note="y")
     assert stale.status_code == 409
@@ -284,7 +293,14 @@ async def test_stale_version_is_rejected(team):
 async def test_concurrent_transitions_only_one_succeeds(team):
     ticket_id, claim = await _submitted(team["agent"])
     responses = await asyncio.gather(
-        _move(team["agent"], ticket_id, claim["version"], "rejected", note="拒"),
+        _move(
+            team["agent"],
+            ticket_id,
+            claim["version"],
+            "rejected",
+            rejection_code="other",
+            note="拒",
+        ),
         _move(team["supervisor"], ticket_id, claim["version"], "approved", approved_cents=100),
     )
     assert sorted(r.status_code for r in responses) == [200, 409]
@@ -345,9 +361,11 @@ async def test_closing_and_opening_claim_race_never_leaves_open_claim_on_closed_
 async def test_finished_ticket_freezes_claim(team):
     client = team["supervisor"]
     ticket_id, claim = await _submitted(client)
-    claim = (await _move(client, ticket_id, claim["version"], "rejected", note="拒")).json()[
-        "claim"
-    ]
+    claim = (
+        await _move(
+            client, ticket_id, claim["version"], "rejected", rejection_code="other", note="拒"
+        )
+    ).json()["claim"]
     current = await _resolve(client, ticket_id)
     closed = await client.post(
         f"/api/tickets/{ticket_id}/transition", json={"to": "closed", "version": current["version"]}
@@ -380,7 +398,9 @@ async def test_warehouse_cannot_see_or_change_claims(team):
     assert (await warehouse.get("/api/claims")).status_code == 403
     assert (await warehouse.get("/api/claims/summary")).status_code == 403
     assert (await _open(warehouse, ticket_id)).status_code == 403
-    moved = await _move(warehouse, ticket_id, claim["version"], "rejected", note="x")
+    moved = await _move(
+        warehouse, ticket_id, claim["version"], "rejected", rejection_code="other", note="x"
+    )
     assert moved.status_code == 403
     patched = await warehouse.patch(
         f"/api/tickets/{ticket_id}/claim", json={"version": claim["version"], "carrier": "x"}
@@ -428,7 +448,7 @@ async def test_summary_reports_recovery_by_carrier(team):
     ).json()["claim"]
     await _move(supervisor, ticket_id, claim["version"], "paid", paid_cents=40000)
     ticket_id, claim = await _submitted(agent, "SF2", 10000)
-    await _move(agent, ticket_id, claim["version"], "rejected", note="未保价")
+    await _move(agent, ticket_id, claim["version"], "rejected", rejection_code="uninsured")
     await _submitted(agent, "SF3", 30000)
     # 中通：撤回的不算
     other = await _ticket(agent, tracking_number="ZT1")

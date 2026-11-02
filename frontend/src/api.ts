@@ -53,7 +53,8 @@ export interface TicketEvent {
     | "attachment_voided"
     | "claim_opened"
     | "claim_updated"
-    | "claim_status_changed";
+    | "claim_status_changed"
+    | "ai_drafted";
   actor_name: string;
   from_status: TicketStatus | null;
   to_status: TicketStatus | null;
@@ -68,6 +69,7 @@ export interface TicketEvent {
     to?: ClaimStatus;
     approved_cents?: number;
     paid_cents?: number;
+    rejection_code?: RejectionCode;
   };
   created_at: string;
 }
@@ -104,6 +106,21 @@ export interface ChecklistItem {
   count: number;
 }
 
+export type RejectionCode =
+  | "insufficient_materials"
+  | "damage_not_evident"
+  | "packaging_intact"
+  | "uninsured"
+  | "other";
+
+export const REJECTION_LABELS: Record<RejectionCode, string> = {
+  insufficient_materials: "材料不足",
+  damage_not_evident: "损伤不明显",
+  packaging_intact: "外包装完好",
+  uninsured: "未保价",
+  other: "其他",
+};
+
 export type ClaimStatus = "preparing" | "submitted" | "approved" | "rejected" | "paid" | "withdrawn";
 
 export interface Claim {
@@ -118,6 +135,8 @@ export interface Claim {
   billed_weight_g: number | null;
   external_ref: string;
   rejection_reason: string;
+  rejection_code: RejectionCode | null;
+  goods_quantity: number | null;
   created_at: string;
   updated_at: string;
   submitted_at: string | null;
@@ -151,6 +170,7 @@ export interface CarrierSummary {
 export interface ClaimSummary {
   total: CarrierSummary;
   carriers: CarrierSummary[];
+  rejections: { code: RejectionCode; count: number }[];
 }
 
 export interface TicketDetail extends Ticket {
@@ -158,6 +178,7 @@ export interface TicketDetail extends Ticket {
   attachments: Attachment[];
   evidence_checklist: ChecklistItem[];
   can_upload: boolean;
+  can_draft_reply: boolean;
   claim: Claim | null;
   claim_enabled: boolean;
   claim_transitions: ClaimStatus[];
@@ -275,4 +296,36 @@ export async function api<T>(
     );
   }
   return data as T;
+}
+
+/** 读取服务端事件流。EventSource 只支持 GET，这里的请求是 POST，所以用 fetch 自己解析。 */
+export async function streamEvents(
+  path: string,
+  onEvent: (event: string, data: Record<string, unknown>) => void,
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(path, { method: "POST", credentials: "same-origin" });
+  } catch {
+    throw new ApiError(0, "无法连接服务器，请检查网络");
+  }
+  if (!response.ok || !response.body) {
+    const data = await response.json().catch(() => null);
+    if (response.status === 401) onUnauthorized();
+    throw new ApiError(response.status, errorMessage(data?.detail, response.status));
+  }
+
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return;
+    buffer += value;
+    let end: number;
+    while ((end = buffer.indexOf("\n\n")) !== -1) {
+      const [eventLine, dataLine] = buffer.slice(0, end).split("\n");
+      buffer = buffer.slice(end + 2);
+      onEvent(eventLine.slice("event: ".length), JSON.parse(dataLine.slice("data: ".length)));
+    }
+  }
 }

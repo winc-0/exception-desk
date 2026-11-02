@@ -38,6 +38,9 @@ ATTACHMENT=$(curl -sf -b "$JAR" --data-binary "@$WORK/photo.png" \
 curl -sf -b "$JAR" -o "$WORK/back.png" "$BASE/api/tickets/$TICKET/attachments/$ATTACHMENT/content"
 cmp "$WORK/photo.png" "$WORK/back.png"
 
+# 没配置模型时 AI 草稿退回模板，同时确认流式响应能穿过 Nginx
+curl -sfN -b "$JAR" -X POST "$BASE/api/tickets/$TICKET/ai/reply-draft" | grep -q '"source": "template"'
+
 # 重启后文件还在：确认放在存储卷里，不在容器里
 docker compose up -d --force-recreate api
 for _ in $(seq 1 30); do

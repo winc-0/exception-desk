@@ -493,19 +493,30 @@ dd:last-child {
 }
 
 .evidence,
-.claim {
+.claim,
+.ai-draft {
   display: grid;
   gap: 12px;
 }
 
 .evidence h3,
-.claim h3 {
+.claim h3,
+.ai-draft h3 {
   margin: 0;
 }
 
 .evidence p,
-.claim p {
+.claim p,
+.ai-draft p {
   margin: 0;
+}
+
+.risks {
+  margin: 0;
+  padding: 8px 12px 8px 28px;
+  border-radius: 6px;
+  background: var(--tag-delayed);
+  font-size: 13px;
 }
 
 .checklist,

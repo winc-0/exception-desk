@@ -26,6 +26,10 @@ Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max
 # 上限是一百亿元和一千吨，主要拦截手误
 Cents = Annotated[int, Field(gt=0, le=1_000_000_000_000)]
 Grams = Annotated[int, Field(gt=0, le=1_000_000_000)]
+Quantity = Annotated[int, Field(gt=0, le=1_000_000)]
+RejectionCode = Literal[
+    "insufficient_materials", "damage_not_evident", "packaging_intact", "uninsured", "other"
+]
 
 
 class LoginIn(BaseModel):
@@ -169,6 +173,7 @@ Carrier = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, 
 
 class ClaimIn(BaseModel):
     carrier: Carrier
+    goods_quantity: Quantity | None = None
     claim_amount_cents: Cents | None = None
     insured: bool = False
     pickup_weight_g: Grams | None = None
@@ -178,6 +183,7 @@ class ClaimIn(BaseModel):
 class ClaimPatch(BaseModel):
     version: int
     carrier: Carrier | None = None
+    goods_quantity: Quantity | None = None
     claim_amount_cents: Cents | None = None
     insured: bool | None = None
     pickup_weight_g: Grams | None = None
@@ -191,6 +197,7 @@ class ClaimTransitionIn(BaseModel):
     external_ref: str | None = Field(default=None, max_length=100)
     approved_cents: Cents | None = None
     paid_cents: Cents | None = None
+    rejection_code: RejectionCode | None = None
 
 
 class ClaimOut(BaseModel):
@@ -205,6 +212,8 @@ class ClaimOut(BaseModel):
     billed_weight_g: int | None
     external_ref: str
     rejection_reason: str
+    rejection_code: RejectionCode | None
+    goods_quantity: int | None
     created_at: datetime
     updated_at: datetime
     submitted_at: datetime | None
@@ -236,9 +245,19 @@ class CarrierSummary(BaseModel):
     paid_cents: int
 
 
+class RejectionCount(BaseModel):
+    code: RejectionCode
+    count: int
+
+
 class ClaimSummary(BaseModel):
     total: CarrierSummary
     carriers: list[CarrierSummary]
+    rejections: list[RejectionCount]
+
+
+class AiFeedbackIn(BaseModel):
+    verdict: Literal["used", "edited", "rejected"]
 
 
 class TicketDetail(TicketOut):
@@ -246,6 +265,7 @@ class TicketDetail(TicketOut):
     attachments: list[AttachmentOut]
     evidence_checklist: list[ChecklistItem]
     can_upload: bool
+    can_draft_reply: bool
     # 没有索赔权限时 claim 是 None，claim_enabled 是 false
     claim: ClaimOut | None
     claim_enabled: bool

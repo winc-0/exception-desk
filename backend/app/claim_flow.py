@@ -7,6 +7,13 @@ from app.ticket_flow import TransitionError
 
 # 索赔还在进行中，这时不能关闭或取消工单
 OPEN_STATUSES = frozenset({"preparing", "submitted", "approved"})
+REJECTION_LABELS = {
+    "insufficient_materials": "材料不足",
+    "damage_not_evident": "损伤不明显",
+    "packaging_intact": "外包装完好",
+    "uninsured": "未保价",
+    "other": "其他",
+}
 EDITABLE_STATUSES = frozenset({"preparing", "rejected"})
 # 材料已经交给承运商，这时作废证据会和提交的内容对不上
 LOCKS_EVIDENCE_STATUSES = frozenset({"submitted", "approved", "paid"})
@@ -16,13 +23,13 @@ LOCKS_EVIDENCE_STATUSES = frozenset({"submitted", "approved", "paid"})
 class Rule:
     managers_only: bool = False
     requires_note: bool = False
-    requires: Literal["submission", "approved", "paid"] | None = None
+    requires: Literal["submission", "approved", "paid", "rejection"] | None = None
 
 
 TRANSITIONS: dict[tuple[str, str], Rule] = {
     ("preparing", "submitted"): Rule(requires="submission"),
     ("submitted", "approved"): Rule(requires="approved"),
-    ("submitted", "rejected"): Rule(requires_note=True),
+    ("submitted", "rejected"): Rule(requires="rejection"),
     # 被拒后补充材料再次提交
     ("rejected", "submitted"): Rule(requires_note=True, requires="submission"),
     # 到账涉及钱，由主管确认
@@ -53,6 +60,7 @@ def check_transition(
     paid_cents: int | None = None,
     missing_evidence: list[str] | None = None,
     current_approved_cents: int | None = None,
+    rejection_code: str | None = None,
 ) -> None:
     rule = TRANSITIONS.get((status, target))
     if rule is None:
@@ -67,6 +75,11 @@ def check_transition(
             raise TransitionError(422, "请先填写索赔金额")
         if missing_evidence:
             raise TransitionError(422, f"还缺必备证据：{'、'.join(missing_evidence)}")
+    elif rule.requires == "rejection":
+        if rejection_code is None:
+            raise TransitionError(422, "请选择拒赔原因")
+        if rejection_code == "other" and not note.strip():
+            raise TransitionError(422, "请填写具体的拒赔原因")
     elif rule.requires == "approved":
         if approved_cents is None:
             raise TransitionError(422, "请填写核定金额")

@@ -33,6 +33,10 @@ services:
       DESK_ALLOWED_ORIGINS: ${DESK_ALLOWED_ORIGINS:?请在 .env 中设置}
       DESK_COOKIE_SECURE: ${DESK_COOKIE_SECURE:-true}
       DESK_ATTACHMENT_DIR: /data/attachments
+      # 留空时 AI 回复草稿退回到模板
+      DESK_LLM_BASE_URL: ${DESK_LLM_BASE_URL:-}
+      DESK_LLM_API_KEY: ${DESK_LLM_API_KEY:-}
+      DESK_LLM_MODEL: ${DESK_LLM_MODEL:-}
     volumes:
       - attachments:/data/attachments
     depends_on:

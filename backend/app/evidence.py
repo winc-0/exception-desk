@@ -11,7 +11,7 @@ CATEGORY_LABELS: dict[str, str] = {
     "packing_video": "打包或发货视频",
     "weight_record": "称重记录",
     "tracking_screenshot": "物流轨迹截图",
-    "value_proof": "货值凭证",
+    "value_proof": "货值证明（发票等）",
     "customer_proof": "买家开箱证据",
     "other": "其他",
 }
@@ -19,8 +19,8 @@ CATEGORY_LABELS: dict[str, str] = {
 # (必备, 建议)。提交索赔前必备项要齐全。
 _CHECKLISTS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
     "damaged": (
-        frozenset({"label_photo", "package_photo", "damage_photo"}),
-        frozenset({"packing_video", "value_proof", "customer_proof", "weight_record"}),
+        frozenset({"label_photo", "package_photo", "damage_photo", "value_proof"}),
+        frozenset({"packing_video", "customer_proof", "weight_record"}),
     ),
     "lost": (
         frozenset({"tracking_screenshot", "value_proof"}),

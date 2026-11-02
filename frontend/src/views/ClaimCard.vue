@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
-import { api, ApiError, CLAIM_STATUS_LABELS, type ClaimStatus, type TicketDetail } from "../api";
+import {
+  api,
+  ApiError,
+  CLAIM_STATUS_LABELS,
+  REJECTION_LABELS,
+  type ClaimStatus,
+  type RejectionCode,
+  type TicketDetail,
+} from "../api";
 import { formatMinor, formatTime, formatYuan, parseMinor } from "../format";
 
 const props = defineProps<{ ticket: TicketDetail }>();
@@ -11,10 +19,10 @@ const error = ref("");
 const busy = ref(false);
 
 const editing = ref(false);
-const form = reactive({ carrier: "", amount: "", insured: false, pickup: "", billed: "" });
+const form = reactive({ carrier: "", quantity: "", amount: "", insured: false, pickup: "", billed: "" });
 
 const pending = ref<ClaimStatus | null>(null);
-const action = reactive({ note: "", amount: "", externalRef: "" });
+const action = reactive({ note: "", amount: "", externalRef: "", rejectionCode: "" as RejectionCode | "" });
 
 const missingEvidence = computed(() =>
   props.ticket.evidence_checklist.filter((i) => i.level === "required" && !i.count).map((i) => i.label),
@@ -39,16 +47,18 @@ function actionLabel(from: ClaimStatus, to: ClaimStatus): string {
 }
 
 const notePrompt = computed(() =>
-  pending.value === "rejected" ? "拒赔原因" : pending.value === "submitted" ? "补充了什么（再次提交时必填）" : "原因",
+  pending.value === "rejected" ? "补充说明（选“其他”时必填）" : pending.value === "submitted" ? "补充了什么（再次提交时必填）" : "原因",
 );
 const noteRequired = computed(() => {
   if (pending.value === "submitted") return claim.value?.status === "rejected";
-  return pending.value === "rejected" || pending.value === "withdrawn";
+  if (pending.value === "rejected") return action.rejectionCode === "other";
+  return pending.value === "withdrawn";
 });
 
 function startEdit() {
   const value = claim.value;
   form.carrier = value?.carrier ?? "";
+  form.quantity = value?.goods_quantity ? String(value.goods_quantity) : "";
   form.amount = formatMinor(value?.claim_amount_cents ?? null, 2);
   form.insured = value?.insured ?? false;
   form.pickup = formatMinor(value?.pickup_weight_g ?? null, 3);
@@ -66,11 +76,13 @@ async function saveForm() {
   const amount = parseMinor(form.amount, 2);
   const pickup = parseMinor(form.pickup, 3);
   const billed = parseMinor(form.billed, 3);
+  if (form.quantity && !/^[1-9]\d{0,5}$/.test(form.quantity)) return void (error.value = "货物数量要填正整数");
   if (amount === undefined) return void (error.value = "索赔金额格式不对，例如 128.50");
   if (pickup === undefined || billed === undefined) return void (error.value = "重量格式不对，例如 1.25");
 
   const body = {
     carrier: form.carrier,
+    goods_quantity: form.quantity ? Number(form.quantity) : null,
     claim_amount_cents: amount,
     insured: form.insured,
     pickup_weight_g: pickup,
@@ -97,6 +109,7 @@ function choose(to: ClaimStatus) {
   action.note = "";
   action.amount = "";
   action.externalRef = claim.value?.external_ref ?? "";
+  action.rejectionCode = "";
   error.value = "";
   // 只有“重新准备”不用多填内容，点击后直接执行
   if (to === "preparing") {
@@ -110,6 +123,7 @@ function choose(to: ClaimStatus) {
 async function move(to: ClaimStatus) {
   const body: Record<string, unknown> = { to, version: claim.value!.version, note: action.note };
   if (to === "submitted") body.external_ref = action.externalRef;
+  if (to === "rejected") body.rejection_code = action.rejectionCode;
   if (to === "approved" || to === "paid") {
     const amount = parseMinor(action.amount, 2);
     if (!amount) return void (error.value = "请填写正确的金额，例如 128.50");
@@ -145,6 +159,10 @@ async function move(to: ClaimStatus) {
           <dd>{{ claim.carrier }}{{ claim.insured ? "（已保价）" : "（未保价）" }}</dd>
         </div>
         <div>
+          <dt>货物数量</dt>
+          <dd>{{ claim.goods_quantity ?? "—" }}</dd>
+        </div>
+        <div>
           <dt>索赔金额</dt>
           <dd>{{ formatYuan(claim.claim_amount_cents) }}</dd>
         </div>
@@ -176,7 +194,10 @@ async function move(to: ClaimStatus) {
       <p v-if="weightGap" class="hint-inline">
         揽收重量比计费重量{{ weightGap > 0 ? "多" : "少" }} {{ formatMinor(Math.abs(weightGap), 3) }} kg。
       </p>
-      <p v-if="claim.rejection_reason" class="error">拒赔原因：{{ claim.rejection_reason }}</p>
+      <p v-if="claim.status === 'rejected'" class="error">
+        拒赔原因：{{ claim.rejection_code ? REJECTION_LABELS[claim.rejection_code] : "" }}
+        <template v-if="claim.rejection_reason">（{{ claim.rejection_reason }}）</template>
+      </p>
       <p v-if="claim.status === 'preparing' && missingEvidence.length" class="hint-inline">
         提交前还缺：{{ missingEvidence.join("、") }}
       </p>
@@ -207,6 +228,13 @@ async function move(to: ClaimStatus) {
           {{ pending === "approved" ? "核定金额（元）" : "到账金额（元）" }}
           <input v-model.trim="action.amount" inputmode="decimal" required />
         </label>
+        <label v-if="pending === 'rejected'">
+          拒赔原因
+          <select v-model="action.rejectionCode" required>
+            <option value="" disabled>请选择</option>
+            <option v-for="(label, value) in REJECTION_LABELS" :key="value" :value="value">{{ label }}</option>
+          </select>
+        </label>
         <label v-if="pending === 'submitted'">
           承运商理赔单号（选填）
           <input v-model.trim="action.externalRef" maxlength="100" />
@@ -216,7 +244,12 @@ async function move(to: ClaimStatus) {
           <textarea v-model="action.note" rows="2" :required="noteRequired" maxlength="2000"></textarea>
         </label>
         <div class="actions">
-          <button type="submit" :disabled="busy || (noteRequired && !action.note.trim())">确认</button>
+          <button
+            type="submit"
+            :disabled="busy || (noteRequired && !action.note.trim()) || (pending === 'rejected' && !action.rejectionCode)"
+          >
+            确认
+          </button>
           <button class="ghost" type="button" @click="pending = null">放弃</button>
         </div>
       </form>
@@ -228,6 +261,10 @@ async function move(to: ClaimStatus) {
       <label>
         承运商
         <input v-model.trim="form.carrier" required maxlength="64" />
+      </label>
+      <label>
+        货物数量（件）
+        <input v-model.trim="form.quantity" inputmode="numeric" />
       </label>
       <label>
         索赔金额（元）
