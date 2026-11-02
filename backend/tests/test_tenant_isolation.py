@@ -65,8 +65,8 @@ async def test_db_rejects_insert_into_other_tenant(seed, app_engine):
         with pytest.raises(DBAPIError, match="row-level security"):
             await connection.execute(
                 text(
-                    "INSERT INTO tickets (tenant_id, type, title, created_by) "
-                    "VALUES (:t, 'other', 'x', :u)"
+                    "INSERT INTO tickets (tenant_id, number, type, title, created_by) "
+                    "VALUES (:t, 1, 'other', 'x', :u)"
                 ),
                 {"t": beta.tenant_id, "u": beta.user_id},
             )
@@ -97,8 +97,8 @@ async def test_db_rejects_cross_tenant_assignee(seed, app_engine):
         with pytest.raises(IntegrityError, match="tickets_assignee_in_tenant"):
             await connection.execute(
                 text(
-                    "INSERT INTO tickets (tenant_id, type, title, created_by, assignee_id) "
-                    "VALUES (:t, 'other', 'x', :u, :a)"
+                    "INSERT INTO tickets (tenant_id, number, type, title, created_by, assignee_id) "
+                    "VALUES (:t, 1, 'other', 'x', :u, :a)"
                 ),
                 {"t": alpha.tenant_id, "u": alpha.user_id, "a": beta.user_id},
             )
@@ -120,7 +120,7 @@ async def test_api_cannot_read_other_tenant_ticket(seed, login):
 
     assert (await alpha_client.get(f"/api/tickets/{ticket['id']}")).status_code == 200
     assert (await beta_client.get(f"/api/tickets/{ticket['id']}")).status_code == 404
-    assert (await beta_client.get("/api/tickets")).json() == []
+    assert (await beta_client.get("/api/tickets")).json()["items"] == []
 
 
 async def test_api_rejects_other_tenant_or_unknown_assignee(seed, login):
@@ -151,6 +151,10 @@ async def test_same_user_in_two_tenants_only_sees_logged_in_tenant(seed, login):
     await _ticket(alpha_client, "A 的工单")
     await _ticket(beta_client, "B 的工单")
 
-    assert [t["title"] for t in (await alpha_client.get("/api/tickets")).json()] == ["A 的工单"]
-    assert [t["title"] for t in (await beta_client.get("/api/tickets")).json()] == ["B 的工单"]
+    assert [t["title"] for t in (await alpha_client.get("/api/tickets")).json()["items"]] == [
+        "A 的工单"
+    ]
+    assert [t["title"] for t in (await beta_client.get("/api/tickets")).json()["items"]] == [
+        "B 的工单"
+    ]
     assert (await beta_client.get("/api/auth/me")).json()["tenant"]["slug"] == "beta"
