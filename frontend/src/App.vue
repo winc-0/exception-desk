@@ -23,6 +23,7 @@ async function logout() {
     </div>
     <nav>
       <RouterLink to="/tickets">工单</RouterLink>
+      <RouterLink v-if="can('claims:manage')" to="/claims">索赔</RouterLink>
       <RouterLink v-if="can('members:read')" to="/members">成员</RouterLink>
     </nav>
     <div class="account">

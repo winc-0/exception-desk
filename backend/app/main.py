@@ -7,7 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import Settings, get_settings
-from app.routers import auth, members, tickets
+from app.routers import attachments, auth, claims, members, tickets
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
@@ -52,4 +52,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth.router)
     app.include_router(members.router)
     app.include_router(tickets.router)
+    app.include_router(attachments.router)
+    app.include_router(claims.router)
     return app

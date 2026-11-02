@@ -44,17 +44,124 @@ export interface TicketPage {
 
 export interface TicketEvent {
   id: number;
-  kind: "created" | "status_changed" | "assigned" | "commented";
+  kind:
+    | "created"
+    | "status_changed"
+    | "assigned"
+    | "commented"
+    | "attachment_added"
+    | "attachment_voided"
+    | "claim_opened"
+    | "claim_updated"
+    | "claim_status_changed";
   actor_name: string;
   from_status: TicketStatus | null;
   to_status: TicketStatus | null;
   body: string;
-  data: { assignee_name?: string | null; source?: string };
+  data: {
+    assignee_name?: string | null;
+    source?: string;
+    category_label?: string;
+    filename?: string;
+    carrier?: string;
+    from?: ClaimStatus;
+    to?: ClaimStatus;
+    approved_cents?: number;
+    paid_cents?: number;
+  };
   created_at: string;
+}
+
+export type EvidenceCategory =
+  | "label_photo"
+  | "package_photo"
+  | "damage_photo"
+  | "packing_video"
+  | "weight_record"
+  | "tracking_screenshot"
+  | "value_proof"
+  | "customer_proof"
+  | "other";
+
+export interface Attachment {
+  id: string;
+  category: EvidenceCategory;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  sha256: string;
+  uploader_name: string;
+  created_at: string;
+  voided_at: string | null;
+  void_reason: string;
+  can_void: boolean;
+}
+
+export interface ChecklistItem {
+  category: EvidenceCategory;
+  label: string;
+  level: "required" | "recommended" | "optional";
+  count: number;
+}
+
+export type ClaimStatus = "preparing" | "submitted" | "approved" | "rejected" | "paid" | "withdrawn";
+
+export interface Claim {
+  version: number;
+  status: ClaimStatus;
+  carrier: string;
+  claim_amount_cents: number | null;
+  approved_cents: number | null;
+  paid_cents: number | null;
+  insured: boolean;
+  pickup_weight_g: number | null;
+  billed_weight_g: number | null;
+  external_ref: string;
+  rejection_reason: string;
+  created_at: string;
+  updated_at: string;
+  submitted_at: string | null;
+  paid_at: string | null;
+}
+
+export interface ClaimListItem extends Claim {
+  ticket_id: string;
+  ticket_number: number;
+  ticket_title: string;
+  ticket_type: TicketType;
+  tracking_number: string | null;
+}
+
+export interface ClaimPage {
+  items: ClaimListItem[];
+  next_before: number | null;
+}
+
+export interface CarrierSummary {
+  carrier: string;
+  total: number;
+  open: number;
+  rejected: number;
+  paid: number;
+  claimed_cents: number;
+  settled_claimed_cents: number;
+  paid_cents: number;
+}
+
+export interface ClaimSummary {
+  total: CarrierSummary;
+  carriers: CarrierSummary[];
 }
 
 export interface TicketDetail extends Ticket {
   events: TicketEvent[];
+  attachments: Attachment[];
+  evidence_checklist: ChecklistItem[];
+  can_upload: boolean;
+  claim: Claim | null;
+  claim_enabled: boolean;
+  claim_transitions: ClaimStatus[];
+  claim_blocks_closing: boolean;
   allowed_transitions: TicketStatus[];
   can_claim: boolean;
   can_assign: boolean;
@@ -73,6 +180,15 @@ export const STATUS_LABELS: Record<TicketStatus, string> = {
   resolved: "已解决",
   closed: "已关闭",
   cancelled: "已取消",
+};
+
+export const CLAIM_STATUS_LABELS: Record<ClaimStatus, string> = {
+  preparing: "准备中",
+  submitted: "已提交",
+  approved: "已核定",
+  rejected: "被拒赔",
+  paid: "已到账",
+  withdrawn: "已撤回",
 };
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -128,7 +244,7 @@ export async function api<T>(
   let headers: Record<string, string> | undefined;
   let body: BodyInit | undefined;
   if (options.file) {
-    headers = { "Content-Type": "text/csv" };
+    headers = { "Content-Type": options.file.type || "application/octet-stream" };
     body = options.file;
   } else if (options.body !== undefined) {
     headers = { "Content-Type": "application/json" };

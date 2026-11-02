@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import {
   api,
   ApiError,
+  CLAIM_STATUS_LABELS,
   STATUS_LABELS,
   TYPE_LABELS,
   type Member,
@@ -10,8 +11,10 @@ import {
   type TicketEvent,
   type TicketStatus,
 } from "../api";
-import { formatTime } from "../format";
+import { formatTime, formatYuan } from "../format";
 import { can, me } from "../session";
+import ClaimCard from "./ClaimCard.vue";
+import EvidenceCard from "./EvidenceCard.vue";
 
 const props = defineProps<{ id: string }>();
 
@@ -44,6 +47,15 @@ const pendingPrompt = computed(() => (pending.value === "resolved" ? "处理结�
 
 const activeMembers = computed(() => members.value.filter((m) => m.is_active));
 
+// 索赔还没结束时不显示关闭和取消，下面用一句提示说明原因，不让人点了才报错
+const transitions = computed(() => {
+  const all = ticket.value?.allowed_transitions ?? [];
+  return ticket.value?.claim_blocks_closing ? all.filter((to) => to !== "closed" && to !== "cancelled") : all;
+});
+const closingBlocked = computed(
+  () => transitions.value.length !== (ticket.value?.allowed_transitions.length ?? 0),
+);
+
 function describe(event: TicketEvent): string {
   switch (event.kind) {
     case "created":
@@ -55,6 +67,21 @@ function describe(event: TicketEvent): string {
       return `把状态从“${STATUS_LABELS[event.from_status!]}”改为“${STATUS_LABELS[event.to_status!]}”`;
     case "commented":
       return "发表了评论";
+    case "attachment_added":
+      return `上传了证据（${event.data.category_label}）：${event.data.filename}`;
+    case "attachment_voided":
+      return `作废了证据（${event.data.category_label}）：${event.data.filename}`;
+    case "claim_opened":
+      return `发起了对 ${event.data.carrier} 的索赔`;
+    case "claim_updated":
+      return "修改了索赔信息";
+    case "claim_status_changed": {
+      const amount = event.data.paid_cents ?? event.data.approved_cents;
+      return (
+        `把索赔从“${CLAIM_STATUS_LABELS[event.data.from!]}”改为“${CLAIM_STATUS_LABELS[event.data.to!]}”` +
+        (amount ? `，金额 ${formatYuan(amount)}` : "")
+      );
+    }
   }
 }
 
@@ -162,6 +189,9 @@ watch(
 
       <p v-if="error" class="error" role="alert">{{ error }}</p>
 
+      <EvidenceCard :ticket="ticket" @updated="ticket = $event" @stale="load" />
+      <ClaimCard v-if="ticket.claim_enabled" :ticket="ticket" @updated="ticket = $event" @stale="load" />
+
       <div class="card">
         <h3>处理记录</h3>
         <ol class="timeline">
@@ -227,7 +257,7 @@ watch(
         <h3>操作</h3>
         <button v-if="ticket.can_claim" type="button" :disabled="busy" @click="assign(me!.user_id)">领取工单</button>
         <button
-          v-for="to in ticket.allowed_transitions"
+          v-for="to in transitions"
           :key="to"
           :class="to === 'cancelled' ? 'danger' : 'secondary'"
           type="button"
@@ -236,6 +266,8 @@ watch(
         >
           {{ actionLabel(ticket.status, to) }}
         </button>
+
+        <p v-if="closingBlocked" class="muted">索赔还没有结束，结束后才能关闭或取消工单。</p>
 
         <form v-if="pending" class="pending" @submit.prevent="transition(pending!)">
           <label>

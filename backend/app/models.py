@@ -163,7 +163,9 @@ class TicketEvent(Base):
             name="ticket_events_actor_in_tenant",
         ),
         CheckConstraint(
-            "kind IN ('created', 'status_changed', 'assigned', 'commented')",
+            "kind IN ('created', 'status_changed', 'assigned', 'commented', "
+            "'attachment_added', 'attachment_voided', "
+            "'claim_opened', 'claim_updated', 'claim_status_changed')",
             name="ticket_events_kind_valid",
         ),
         Index("ticket_events_ticket", "tenant_id", "ticket_id", "id"),
@@ -179,3 +181,88 @@ class TicketEvent(Base):
     body: Mapped[str] = mapped_column(Text, server_default=text("''"))
     data: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TicketAttachment(Base):
+    """证据附件，内容不可修改，只能作废。租户表，受 RLS 保护。"""
+
+    __tablename__ = "ticket_attachments"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "ticket_id"],
+            ["tickets.tenant_id", "tickets.id"],
+            name="ticket_attachments_ticket_in_tenant",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "uploaded_by"],
+            ["memberships.tenant_id", "memberships.user_id"],
+            name="ticket_attachments_uploader_in_tenant",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "voided_by"],
+            ["memberships.tenant_id", "memberships.user_id"],
+            name="ticket_attachments_voider_in_tenant",
+        ),
+        Index("ticket_attachments_ticket", "tenant_id", "ticket_id", "created_at"),
+        Index(
+            "ticket_attachments_one_per_content",
+            "tenant_id",
+            "ticket_id",
+            "sha256",
+            unique=True,
+            postgresql_where=text("voided_at IS NULL"),
+        ),
+    )
+
+    # 由应用生成：写文件和写数据库都要用到
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    ticket_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    uploaded_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    category: Mapped[str] = mapped_column(Text)
+    filename: Mapped[str] = mapped_column(Text)
+    content_type: Mapped[str] = mapped_column(Text)
+    size_bytes: Mapped[int] = mapped_column(BigInteger)
+    sha256: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    voided_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    void_reason: Mapped[str] = mapped_column(Text, server_default=text("''"))
+
+
+class TicketClaim(Base):
+    """向承运商的索赔，每张工单最多一笔。租户表，受 RLS 保护。金额单位是分，重量单位是克。"""
+
+    __tablename__ = "ticket_claims"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "ticket_id"],
+            ["tickets.tenant_id", "tickets.id"],
+            name="ticket_claims_ticket_in_tenant",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "created_by"],
+            ["memberships.tenant_id", "memberships.user_id"],
+            name="ticket_claims_creator_in_tenant",
+        ),
+        Index("ticket_claims_status", "tenant_id", "status"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    ticket_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, server_default=text("1"))
+    status: Mapped[str] = mapped_column(Text, server_default=text("'preparing'"))
+    carrier: Mapped[str] = mapped_column(Text)
+    claim_amount_cents: Mapped[int | None] = mapped_column(BigInteger)
+    approved_cents: Mapped[int | None] = mapped_column(BigInteger)
+    paid_cents: Mapped[int | None] = mapped_column(BigInteger)
+    insured: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    pickup_weight_g: Mapped[int | None] = mapped_column(Integer)
+    billed_weight_g: Mapped[int | None] = mapped_column(Integer)
+    external_ref: Mapped[str] = mapped_column(Text, server_default=text("''"))
+    rejection_reason: Mapped[str] = mapped_column(Text, server_default=text("''"))
+    created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -12,7 +12,8 @@ COPY app ./app
 COPY migrations ./migrations
 COPY scripts ./scripts
 
-RUN useradd --create-home desk && chown -R desk /app
+# 先建好目录并改属主，Docker 新建命名卷时会沿用这个属主
+RUN useradd --create-home desk && mkdir -p /data/attachments && chown -R desk /app /data
 USER desk
 
 CMD ["uvicorn", "app.asgi:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]

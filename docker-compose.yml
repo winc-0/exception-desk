@@ -32,6 +32,9 @@ services:
       DESK_JWT_SECRET: ${DESK_JWT_SECRET:?请在 .env 中设置}
       DESK_ALLOWED_ORIGINS: ${DESK_ALLOWED_ORIGINS:?请在 .env 中设置}
       DESK_COOKIE_SECURE: ${DESK_COOKIE_SECURE:-true}
+      DESK_ATTACHMENT_DIR: /data/attachments
+    volumes:
+      - attachments:/data/attachments
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -47,3 +50,4 @@ services:
 
 volumes:
   db_data:
+  attachments:
