@@ -14,6 +14,8 @@ class Permission(StrEnum):
     TICKETS_IMPORT = "tickets:import"
     # 指派任何人，处理任何工单，以及关闭、取消、重新打开
     TICKETS_MANAGE = "tickets:manage"
+    # 查看和跟进承运商索赔。仓管看不到金额
+    CLAIMS_MANAGE = "claims:manage"
 
 
 _FRONTLINE = {
@@ -22,7 +24,11 @@ _FRONTLINE = {
     Permission.TICKETS_COMMENT,
     Permission.TICKETS_WORK,
 }
-_AGENT = _FRONTLINE | {Permission.TICKETS_CLAIM, Permission.TICKETS_IMPORT}
+_AGENT = _FRONTLINE | {
+    Permission.TICKETS_CLAIM,
+    Permission.TICKETS_IMPORT,
+    Permission.CLAIMS_MANAGE,
+}
 _SUPERVISOR = _AGENT | {Permission.TICKETS_MANAGE, Permission.MEMBERS_READ}
 
 ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {

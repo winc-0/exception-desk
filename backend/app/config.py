@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     allowed_origins: str = ""
     login_max_failures: int = 5
     login_lock_minutes: int = 15
+    attachment_dir: str = "./data/attachments"
 
     @property
     def origins(self) -> set[str]:

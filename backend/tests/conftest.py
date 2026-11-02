@@ -63,13 +63,14 @@ def db_urls(tmp_path_factory):
 
 
 @pytest.fixture
-def settings(db_urls) -> Settings:
+def settings(db_urls, tmp_path) -> Settings:
     return Settings(
         _env_file=None,
         database_url=db_urls["app"],
         jwt_secret="test-secret-" + "x" * 32,
         cookie_secure=False,
         allowed_origins=ORIGIN,
+        attachment_dir=str(tmp_path / "attachments"),
     )
 
 

@@ -2,18 +2,30 @@ import uuid
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, not_, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app import claim_flow, evidence
 from app.csv_import import MAX_BYTES, parse_csv
 from app.deps import Context, SessionDep, require
-from app.models import Membership, Ticket, TicketCounter, TicketEvent, User
+from app.models import (
+    Membership,
+    Ticket,
+    TicketAttachment,
+    TicketClaim,
+    TicketCounter,
+    TicketEvent,
+    User,
+)
 from app.permissions import Permission
 from app.schemas import (
     AssignIn,
+    AttachmentOut,
+    ChecklistItem,
+    ClaimOut,
     CommentIn,
     ImportResult,
     ImportSkipped,
@@ -89,7 +101,35 @@ def _actor(ctx: Context, ticket: Ticket) -> Actor:
     )
 
 
-async def _detail(session: AsyncSession, ctx: Context, ticket_id: uuid.UUID) -> TicketDetail:
+def claim_out(claim: TicketClaim) -> dict:
+    return {name: getattr(claim, name) for name in ClaimOut.model_fields}
+
+
+async def evidence_counts(session: AsyncSession, ticket_id: uuid.UUID) -> dict[str, int]:
+    rows = await session.execute(
+        select(TicketAttachment.category, func.count())
+        .where(TicketAttachment.ticket_id == ticket_id, TicketAttachment.voided_at.is_(None))
+        .group_by(TicketAttachment.category)
+    )
+    return {category: count for category, count in rows}
+
+
+async def lock_open_ticket(session: AsyncSession, ticket_id: uuid.UUID) -> Ticket:
+    """锁住工单行。和关闭工单互斥，避免关闭的同时又开了索赔或传了证据。"""
+    ticket = await session.scalar(
+        select(Ticket)
+        .where(Ticket.id == ticket_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if ticket is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "工单不存在")
+    if ticket.status in TERMINAL_STATUSES:
+        raise HTTPException(status.HTTP_409_CONFLICT, "工单已结束，不能再修改证据或索赔")
+    return ticket
+
+
+async def ticket_detail(session: AsyncSession, ctx: Context, ticket_id: uuid.UUID) -> TicketDetail:
     # 其他公司的工单被 RLS 过滤，返回 404，不暴露它是否存在
     row = (
         await session.execute(
@@ -103,12 +143,33 @@ async def _detail(session: AsyncSession, ctx: Context, ticket_id: uuid.UUID) -> 
         raise HTTPException(status.HTTP_404_NOT_FOUND, "工单不存在")
     ticket = row[0]
 
-    events = await session.execute(
+    claims_enabled = ctx.can(Permission.CLAIMS_MANAGE)
+    events_query = (
         select(TicketEvent, User.display_name)
         .join(User, User.id == TicketEvent.actor_id)
         .where(TicketEvent.ticket_id == ticket_id)
         .order_by(TicketEvent.id)
     )
+    if not claims_enabled:
+        # 索赔事件里有金额，没有索赔权限的人看不到
+        events_query = events_query.where(not_(TicketEvent.kind.startswith("claim_")))
+    events = await session.execute(events_query)
+
+    attachments = await session.execute(
+        select(TicketAttachment, User.display_name)
+        .join(User, User.id == TicketAttachment.uploaded_by)
+        .where(TicketAttachment.ticket_id == ticket_id)
+        .order_by(TicketAttachment.created_at, TicketAttachment.id)
+        .execution_options(populate_existing=True)
+    )
+    claim = await session.scalar(
+        select(TicketClaim)
+        .where(TicketClaim.ticket_id == ticket_id)
+        .execution_options(populate_existing=True)
+    )
+    terminal = ticket.status in TERMINAL_STATUSES
+    claim_locked = claim is not None and claim.status in claim_flow.LOCKS_EVIDENCE_STATUSES
+    can_manage = ctx.can(Permission.TICKETS_MANAGE)
     return TicketDetail(
         **_fields(*row),
         events=[
@@ -136,6 +197,44 @@ async def _detail(session: AsyncSession, ctx: Context, ticket_id: uuid.UUID) -> 
         ),
         can_assign=(ctx.can(Permission.TICKETS_MANAGE) and ticket.status not in TERMINAL_STATUSES),
         can_comment=ctx.can(Permission.TICKETS_COMMENT),
+        attachments=[
+            AttachmentOut(
+                id=attachment.id,
+                category=attachment.category,
+                filename=attachment.filename,
+                content_type=attachment.content_type,
+                size_bytes=attachment.size_bytes,
+                sha256=attachment.sha256,
+                uploader_name=name,
+                created_at=attachment.created_at,
+                voided_at=attachment.voided_at,
+                void_reason=attachment.void_reason,
+                can_void=(
+                    attachment.voided_at is None
+                    and not terminal
+                    and not claim_locked
+                    and (can_manage or attachment.uploaded_by == ctx.user_id)
+                ),
+            )
+            for attachment, name in attachments
+        ],
+        evidence_checklist=[
+            ChecklistItem(**item)
+            for item in evidence.checklist(ticket.type, await evidence_counts(session, ticket_id))
+        ],
+        can_upload=ctx.can(Permission.TICKETS_COMMENT) and not terminal,
+        claim=ClaimOut(**claim_out(claim)) if claim is not None and claims_enabled else None,
+        claim_enabled=(
+            claims_enabled
+            and ticket.type in evidence.CLAIMABLE_TYPES
+            and (claim is not None or not terminal)
+        ),
+        claim_transitions=(
+            claim_flow.allowed_targets(claim.status, can_manage=can_manage)
+            if claim is not None and claims_enabled and not terminal
+            else []
+        ),
+        claim_blocks_closing=claim is not None and claim.status in claim_flow.OPEN_STATUSES,
     )
 
 
@@ -268,7 +367,7 @@ async def create_ticket(body: TicketIn, ctx: Creator, session: SessionDep) -> Ti
         )
     )
     await session.flush()
-    out = await _detail(session, ctx, ticket.id)
+    out = await ticket_detail(session, ctx, ticket.id)
     await session.commit()
     return out
 
@@ -355,7 +454,7 @@ async def import_tickets(request: Request, ctx: Importer, session: SessionDep) -
 
 @router.get("/{ticket_id}")
 async def get_ticket(ticket_id: uuid.UUID, ctx: Reader, session: SessionDep) -> TicketDetail:
-    return await _detail(session, ctx, ticket_id)
+    return await ticket_detail(session, ctx, ticket_id)
 
 
 @router.post("/{ticket_id}/transition")
@@ -380,6 +479,14 @@ async def transition_ticket(
     if body.to == "resolved":
         values["resolution"] = body.resolution.strip()
     await _apply_update(session, ticket, body.version, **values)
+    if body.to in TERMINAL_STATUSES:
+        # 上面的 UPDATE 已经锁住工单行，和开启索赔互斥，这里读到的是最新状态
+        claim_status = await session.scalar(
+            select(TicketClaim.status).where(TicketClaim.ticket_id == ticket_id)
+        )
+        if claim_status in claim_flow.OPEN_STATUSES:
+            await session.rollback()
+            raise HTTPException(status.HTTP_409_CONFLICT, "索赔还没有结束，不能关闭或取消工单")
     session.add(
         TicketEvent(
             tenant_id=ctx.tenant_id,
@@ -392,7 +499,7 @@ async def transition_ticket(
         )
     )
     await session.flush()
-    out = await _detail(session, ctx, ticket_id)
+    out = await ticket_detail(session, ctx, ticket_id)
     await session.commit()
     return out
 
@@ -415,7 +522,7 @@ async def assign_ticket(
     if body.assignee_id is None and ticket.status in NEEDS_ASSIGNEE_STATUSES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "处理中的工单不能没有处理人")
     if body.assignee_id == ticket.assignee_id:
-        return await _detail(session, ctx, ticket_id)
+        return await ticket_detail(session, ctx, ticket_id)
 
     assignee_name = None
     if body.assignee_id is not None:
@@ -437,7 +544,7 @@ async def assign_ticket(
         )
     )
     await session.flush()
-    out = await _detail(session, ctx, ticket_id)
+    out = await ticket_detail(session, ctx, ticket_id)
     await session.commit()
     return out
 
@@ -460,6 +567,6 @@ async def comment_ticket(
         )
     )
     await session.flush()
-    out = await _detail(session, ctx, ticket_id)
+    out = await ticket_detail(session, ctx, ticket_id)
     await session.commit()
     return out

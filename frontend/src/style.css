@@ -492,6 +492,188 @@ dd:last-child {
   margin-bottom: 4px;
 }
 
+.evidence,
+.claim {
+  display: grid;
+  gap: 12px;
+}
+
+.evidence h3,
+.claim h3 {
+  margin: 0;
+}
+
+.evidence p,
+.claim p {
+  margin: 0;
+}
+
+.checklist,
+.attachments {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.checklist {
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 4px 16px;
+}
+
+.checklist .muted {
+  font-size: 12px;
+}
+
+.checklist .missing {
+  color: var(--danger);
+}
+
+.attachments {
+  gap: 10px;
+}
+
+.attachments li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.attachments li.voided a {
+  text-decoration: line-through;
+}
+
+.thumb {
+  display: grid;
+  flex: none;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 11px;
+  place-items: center;
+  text-decoration: none;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attachment-info {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.attachment-info .muted {
+  font-size: 12px;
+}
+
+.attachment-info .pending {
+  margin-top: 8px;
+}
+
+.upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.upload select {
+  width: auto;
+}
+
+.upload .muted {
+  font-size: 12px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.claim-facts {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px 16px;
+}
+
+.claim-facts dd {
+  margin: 0;
+}
+
+.hint-inline {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.claim-form {
+  margin: 0;
+}
+
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+label.check input {
+  width: auto;
+}
+
+.status.claim-preparing {
+  --status-color: var(--status-open);
+}
+
+.status.claim-submitted {
+  --status-color: var(--status-resolved);
+}
+
+.status.claim-approved {
+  --status-color: var(--status-waiting);
+}
+
+.status.claim-rejected {
+  --status-color: var(--danger);
+}
+
+.status.claim-paid {
+  --status-color: var(--accent);
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.tile {
+  display: grid;
+  gap: 2px;
+  padding: 14px 16px;
+}
+
+.tile strong {
+  font-size: 20px;
+}
+
+.tile small {
+  font-size: 12px;
+}
+
+.section {
+  margin-bottom: 16px;
+}
+
 @media (max-width: 800px) {
   .detail {
     grid-template-columns: minmax(0, 1fr);
