@@ -15,6 +15,9 @@
   --tag-delayed: #fbf2dc;
   --tag-address: #e6eff7;
   --tag-other: #eceee9;
+  --status-open: #b5651d;
+  --status-waiting: #7a5fa8;
+  --status-resolved: #2f7fb5;
 }
 
 * {
@@ -288,6 +291,228 @@ tr.inactive td {
 
 .tag.address_change {
   background: var(--tag-address);
+}
+
+h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+
+button.secondary {
+  border-color: var(--accent);
+  background: transparent;
+  color: var(--accent);
+}
+
+button.danger {
+  border-color: var(--danger);
+  background: transparent;
+  color: var(--danger);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.hint {
+  margin: -8px 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.error ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.filters select {
+  width: auto;
+}
+
+.filters input {
+  flex: 1 1 200px;
+  width: auto;
+}
+
+.title-link {
+  display: inline-block;
+  min-width: 11em;
+  color: inherit;
+  font-weight: 500;
+}
+
+.back {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.load-more {
+  margin-top: 12px;
+  text-align: center;
+}
+
+.status {
+  font-size: 13px;
+}
+
+.status::before {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--status-color, var(--muted));
+  content: "";
+  vertical-align: 1px;
+}
+
+.status.open {
+  --status-color: var(--status-open);
+}
+
+.status.in_progress {
+  --status-color: var(--accent);
+}
+
+.status.waiting {
+  --status-color: var(--status-waiting);
+}
+
+.status.resolved {
+  --status-color: var(--status-resolved);
+}
+
+.detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  align-items: start;
+  gap: 16px;
+}
+
+.detail-main,
+.detail-side {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.detail-main .error {
+  margin: 0;
+}
+
+.ticket-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.pre-line {
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.resolution {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--notice-bg);
+}
+
+.resolution p {
+  margin: 4px 0 0;
+}
+
+.timeline {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 16px;
+  padding: 0 0 0 16px;
+  border-left: 2px solid var(--line);
+  list-style: none;
+}
+
+.event-body {
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.comment,
+.pending {
+  display: grid;
+  gap: 8px;
+}
+
+dl {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+dd {
+  margin: 0 0 10px;
+}
+
+dd:last-child {
+  margin-bottom: 0;
+}
+
+.action-card {
+  display: grid;
+  gap: 8px;
+}
+
+.action-card h3 {
+  margin-bottom: 4px;
+}
+
+@media (max-width: 800px) {
+  .detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 手机上的顺序：工单标题 → 操作和基本信息 → 处理记录 */
+  .detail-main {
+    display: contents;
+  }
+
+  .detail-main > * {
+    order: 3;
+  }
+
+  .detail-main > :first-child {
+    order: 1;
+  }
+
+  .detail-side {
+    order: 2;
+  }
 }
 
 @media (max-width: 640px) {

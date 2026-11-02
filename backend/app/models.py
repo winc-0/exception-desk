@@ -2,18 +2,21 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Identity,
     Index,
     Integer,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -95,14 +98,32 @@ class Ticket(Base):
             "type IN ('damaged', 'lost', 'delayed', 'address_change', 'other')",
             name="tickets_type_valid",
         ),
-        CheckConstraint("status IN ('open')", name="tickets_status_valid"),
-        Index("tickets_tenant_recent", "tenant_id", text("created_at DESC"), text("id DESC")),
+        CheckConstraint(
+            "status IN ('open', 'in_progress', 'waiting', 'resolved', 'closed', 'cancelled')",
+            name="tickets_status_valid",
+        ),
+        UniqueConstraint("tenant_id", "number", name="tickets_number_key"),
+        UniqueConstraint("tenant_id", "id", name="tickets_tenant_id_key"),
+        # 同一运单的同类异常只能有一张未关闭的工单
+        Index(
+            "tickets_one_active_per_shipment",
+            "tenant_id",
+            "tracking_number",
+            "type",
+            unique=True,
+            postgresql_where=text(
+                "tracking_number IS NOT NULL AND status NOT IN ('closed', 'cancelled')"
+            ),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"))
+    number: Mapped[int] = mapped_column(Integer)
+    # 乐观锁：每次修改都要带上读到的版本号，防止后提交的人覆盖别人刚做的操作
+    version: Mapped[int] = mapped_column(Integer, server_default=text("1"))
     type: Mapped[str] = mapped_column(Text)
     title: Mapped[str] = mapped_column(Text)
     tracking_number: Mapped[str | None] = mapped_column(Text)
@@ -110,4 +131,51 @@ class Ticket(Base):
     status: Mapped[str] = mapped_column(Text, server_default=text("'open'"))
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
     assignee_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    resolution: Mapped[str] = mapped_column(Text, server_default=text("''"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TicketCounter(Base):
+    """每家公司独立的工单号计数器，租户表，受 RLS 保护。"""
+
+    __tablename__ = "ticket_counters"
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id"), primary_key=True
+    )
+    last_number: Mapped[int] = mapped_column(Integer)
+
+
+class TicketEvent(Base):
+    """工单审计事件，只能追加。租户表，受 RLS 保护。"""
+
+    __tablename__ = "ticket_events"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "ticket_id"],
+            ["tickets.tenant_id", "tickets.id"],
+            name="ticket_events_ticket_in_tenant",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "actor_id"],
+            ["memberships.tenant_id", "memberships.user_id"],
+            name="ticket_events_actor_in_tenant",
+        ),
+        CheckConstraint(
+            "kind IN ('created', 'status_changed', 'assigned', 'commented')",
+            name="ticket_events_kind_valid",
+        ),
+        Index("ticket_events_ticket", "tenant_id", "ticket_id", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    ticket_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    actor_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    kind: Mapped[str] = mapped_column(Text)
+    from_status: Mapped[str | None] = mapped_column(Text)
+    to_status: Mapped[str | None] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text, server_default=text("''"))
+    data: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

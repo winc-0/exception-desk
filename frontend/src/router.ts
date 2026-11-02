@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from "vue-router";
 import { can, me, restoreSession } from "./session";
 import LoginView from "./views/LoginView.vue";
 import MembersView from "./views/MembersView.vue";
+import TicketDetailView from "./views/TicketDetailView.vue";
 import TicketsView from "./views/TicketsView.vue";
 
 export const router = createRouter({
@@ -10,6 +11,7 @@ export const router = createRouter({
     { path: "/login", component: LoginView, meta: { public: true } },
     { path: "/", redirect: "/tickets" },
     { path: "/tickets", component: TicketsView },
+    { path: "/tickets/:id", component: TicketDetailView, props: true },
     { path: "/members", component: MembersView, meta: { permission: "members:read" } },
     { path: "/:pathMatch(.*)*", redirect: "/tickets" },
   ],

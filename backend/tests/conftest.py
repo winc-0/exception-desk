@@ -77,7 +77,7 @@ def settings(db_urls) -> Settings:
 async def owner_engine(db_urls):
     engine = create_async_engine(db_urls["owner"])
     async with engine.begin() as connection:
-        await connection.execute(text("TRUNCATE tickets, memberships, users, tenants CASCADE"))
+        await connection.execute(text("TRUNCATE tenants, users CASCADE"))
     yield engine
     await engine.dispose()
 
