@@ -165,7 +165,7 @@ class TicketEvent(Base):
         CheckConstraint(
             "kind IN ('created', 'status_changed', 'assigned', 'commented', "
             "'attachment_added', 'attachment_voided', "
-            "'claim_opened', 'claim_updated', 'claim_status_changed')",
+            "'claim_opened', 'claim_updated', 'claim_status_changed', 'ai_drafted')",
             name="ticket_events_kind_valid",
         ),
         Index("ticket_events_ticket", "tenant_id", "ticket_id", "id"),
@@ -261,8 +261,47 @@ class TicketClaim(Base):
     billed_weight_g: Mapped[int | None] = mapped_column(Integer)
     external_ref: Mapped[str] = mapped_column(Text, server_default=text("''"))
     rejection_reason: Mapped[str] = mapped_column(Text, server_default=text("''"))
+    rejection_code: Mapped[str | None] = mapped_column(Text)
+    goods_quantity: Mapped[int | None] = mapped_column(Integer)
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TicketAiDraft(Base):
+    """AI 回复草稿的记录，用于额度控制、成本统计和效果分析。租户表，受 RLS 保护。"""
+
+    __tablename__ = "ticket_ai_drafts"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "ticket_id"],
+            ["tickets.tenant_id", "tickets.id"],
+            name="ticket_ai_drafts_ticket_in_tenant",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "requested_by"],
+            ["memberships.tenant_id", "memberships.user_id"],
+            name="ticket_ai_drafts_requester_in_tenant",
+        ),
+        Index("ticket_ai_drafts_quota", "tenant_id", "requested_by", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    ticket_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    requested_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    status: Mapped[str] = mapped_column(Text, server_default=text("'generating'"))
+    source: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text, server_default=text("''"))
+    prompt_version: Mapped[str] = mapped_column(Text)
+    draft: Mapped[str] = mapped_column(Text, server_default=text("''"))
+    fallback_reason: Mapped[str] = mapped_column(Text, server_default=text("''"))
+    attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    input_tokens: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    output_tokens: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    latency_ms: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    feedback: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

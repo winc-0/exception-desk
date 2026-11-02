@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +16,18 @@ class Settings(BaseSettings):
     login_max_failures: int = 5
     login_lock_minutes: int = 15
     attachment_dir: str = "./data/attachments"
+    # OpenAI 兼容接口。不配置时 AI 回复草稿退回到模板，其他功能不受影响
+    llm_base_url: str = ""
+    llm_api_key: SecretStr | None = None
+    llm_model: str = ""
+    llm_timeout_seconds: float = 30
+    ai_hourly_limit: int = 30
+
+    @field_validator("llm_api_key", mode="before")
+    @classmethod
+    def blank_key_means_none(cls, value):
+        # docker compose 没填时传的是空字符串
+        return value or None
 
     @property
     def origins(self) -> set[str]:

@@ -19,6 +19,7 @@ from app.schemas import (
     ClaimStatus,
     ClaimSummary,
     ClaimTransitionIn,
+    RejectionCount,
     TicketDetail,
 )
 from app.ticket_flow import TransitionError
@@ -30,6 +31,7 @@ ClaimWorker = Annotated[Context, Depends(require(Permission.CLAIMS_MANAGE))]
 _STALE = "索赔已被其他人更新，请确认最新内容后重试"
 _EDITABLE_FIELDS = (
     "carrier",
+    "goods_quantity",
     "claim_amount_cents",
     "insured",
     "pickup_weight_g",
@@ -148,6 +150,7 @@ async def transition_claim(
             paid_cents=body.paid_cents,
             missing_evidence=missing,
             current_approved_cents=claim.approved_cents,
+            rejection_code=body.rejection_code,
         )
     except TransitionError as error:
         raise HTTPException(error.status_code, error.message) from None
@@ -157,18 +160,22 @@ async def transition_claim(
     if body.to == "submitted":
         values["submitted_at"] = func.now()
         values["rejection_reason"] = ""
+        values["rejection_code"] = None
         if body.external_ref is not None:
             values["external_ref"] = body.external_ref.strip()
     elif body.to == "approved":
         values["approved_cents"] = body.approved_cents
     elif body.to == "rejected":
         values["rejection_reason"] = note
+        values["rejection_code"] = body.rejection_code
     elif body.to == "paid":
         values["paid_cents"] = body.paid_cents
         values["paid_at"] = func.now()
     await _apply(session, claim, **values)
 
     data = {"from": source, "to": body.to}
+    if body.to == "rejected":
+        data["rejection_code"] = body.rejection_code
     if body.to == "approved":
         data["approved_cents"] = body.approved_cents
     elif body.to == "paid":
@@ -237,4 +244,15 @@ async def claim_summary(ctx: ClaimWorker, session: SessionDep) -> ClaimSummary:
         carrier="全部",
         **{name: sum(getattr(carrier, name) for carrier in carriers) for name in numeric},
     )
-    return ClaimSummary(total=total, carriers=carriers)
+    # 被拒后再次提交的不算，这里看的是当前卡在哪类拒赔理由上
+    rejection_rows = await session.execute(
+        select(TicketClaim.rejection_code, func.count())
+        .where(TicketClaim.status == "rejected", TicketClaim.rejection_code.is_not(None))
+        .group_by(TicketClaim.rejection_code)
+        .order_by(func.count().desc(), TicketClaim.rejection_code)
+    )
+    return ClaimSummary(
+        total=total,
+        carriers=carriers,
+        rejections=[RejectionCount(code=code, count=count) for code, count in rejection_rows],
+    )

@@ -71,6 +71,9 @@ def settings(db_urls, tmp_path) -> Settings:
         cookie_secure=False,
         allowed_origins=ORIGIN,
         attachment_dir=str(tmp_path / "attachments"),
+        # 迁移脚本会加载 .env，这里必须明确关掉，测试绝不能调用真实模型
+        llm_api_key=None,
+        llm_model="",
     )
 
 

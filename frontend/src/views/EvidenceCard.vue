@@ -167,7 +167,7 @@ async function confirmVoid() {
       <button class="secondary" type="button" :disabled="!category || !!uploading" @click="fileInput?.click()">
         {{ uploading || "上传文件" }}
       </button>
-      <span class="muted">支持图片、PDF、MP4、MOV，单个不超过 50 MB</span>
+      <span class="muted">支持图片、PDF、MP4、MOV，单个不超过 50 MB。不要上传身份证和银行卡</span>
     </div>
   </div>
 </template>

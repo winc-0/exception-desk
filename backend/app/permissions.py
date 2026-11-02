@@ -16,6 +16,8 @@ class Permission(StrEnum):
     TICKETS_MANAGE = "tickets:manage"
     # 查看和跟进承运商索赔。仓管看不到金额
     CLAIMS_MANAGE = "claims:manage"
+    # 起草发给客户的回复
+    AI_DRAFT = "ai:draft"
 
 
 _FRONTLINE = {
@@ -28,6 +30,7 @@ _AGENT = _FRONTLINE | {
     Permission.TICKETS_CLAIM,
     Permission.TICKETS_IMPORT,
     Permission.CLAIMS_MANAGE,
+    Permission.AI_DRAFT,
 }
 _SUPERVISOR = _AGENT | {Permission.TICKETS_MANAGE, Permission.MEMBERS_READ}
 

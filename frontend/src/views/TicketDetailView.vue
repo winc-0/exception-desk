@@ -4,6 +4,7 @@ import {
   api,
   ApiError,
   CLAIM_STATUS_LABELS,
+  REJECTION_LABELS,
   STATUS_LABELS,
   TYPE_LABELS,
   type Member,
@@ -13,6 +14,7 @@ import {
 } from "../api";
 import { formatTime, formatYuan } from "../format";
 import { can, me } from "../session";
+import AiDraftCard from "./AiDraftCard.vue";
 import ClaimCard from "./ClaimCard.vue";
 import EvidenceCard from "./EvidenceCard.vue";
 
@@ -77,11 +79,15 @@ function describe(event: TicketEvent): string {
       return "修改了索赔信息";
     case "claim_status_changed": {
       const amount = event.data.paid_cents ?? event.data.approved_cents;
+      const rejection = event.data.rejection_code;
       return (
         `把索赔从“${CLAIM_STATUS_LABELS[event.data.from!]}”改为“${CLAIM_STATUS_LABELS[event.data.to!]}”` +
-        (amount ? `，金额 ${formatYuan(amount)}` : "")
+        (amount ? `，金额 ${formatYuan(amount)}` : "") +
+        (rejection ? `，原因：${REJECTION_LABELS[rejection]}` : "")
       );
     }
+    case "ai_drafted":
+      return event.data.source === "model" ? "生成了客户回复草稿（模型）" : "生成了客户回复草稿（模板）";
   }
 }
 
@@ -191,6 +197,7 @@ watch(
 
       <EvidenceCard :ticket="ticket" @updated="ticket = $event" @stale="load" />
       <ClaimCard v-if="ticket.claim_enabled" :ticket="ticket" @updated="ticket = $event" @stale="load" />
+      <AiDraftCard v-if="ticket.can_draft_reply" :ticket-id="ticket.id" @finished="load" />
 
       <div class="card">
         <h3>处理记录</h3>

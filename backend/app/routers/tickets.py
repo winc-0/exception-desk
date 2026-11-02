@@ -153,6 +153,8 @@ async def ticket_detail(session: AsyncSession, ctx: Context, ticket_id: uuid.UUI
     if not claims_enabled:
         # 索赔事件里有金额，没有索赔权限的人看不到
         events_query = events_query.where(not_(TicketEvent.kind.startswith("claim_")))
+    if not ctx.can(Permission.AI_DRAFT):
+        events_query = events_query.where(TicketEvent.kind != "ai_drafted")
     events = await session.execute(events_query)
 
     attachments = await session.execute(
@@ -197,6 +199,7 @@ async def ticket_detail(session: AsyncSession, ctx: Context, ticket_id: uuid.UUI
         ),
         can_assign=(ctx.can(Permission.TICKETS_MANAGE) and ticket.status not in TERMINAL_STATUSES),
         can_comment=ctx.can(Permission.TICKETS_COMMENT),
+        can_draft_reply=ctx.can(Permission.AI_DRAFT) and not terminal,
         attachments=[
             AttachmentOut(
                 id=attachment.id,

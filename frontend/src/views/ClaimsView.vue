@@ -4,6 +4,7 @@ import {
   api,
   ApiError,
   CLAIM_STATUS_LABELS,
+  REJECTION_LABELS,
   type CarrierSummary,
   type ClaimListItem,
   type ClaimPage,
@@ -129,6 +130,13 @@ onMounted(async () => {
         </tbody>
       </table>
     </div>
+
+    <p v-if="summary?.rejections.length" class="muted section">
+      当前被拒赔的原因：
+      <template v-for="(item, index) in summary.rejections" :key="item.code">
+        {{ index ? "、" : "" }}{{ REJECTION_LABELS[item.code] }} {{ item.count }} 笔
+      </template>
+    </p>
 
     <div class="filters">
       <select v-model="statusFilter" aria-label="按索赔状态筛选" @change="loadList">
