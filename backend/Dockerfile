@@ -11,6 +11,7 @@ COPY alembic.ini ./
 COPY app ./app
 COPY migrations ./migrations
 COPY scripts ./scripts
+COPY kb ./kb
 
 # 先建好目录并改属主，Docker 新建命名卷时会沿用这个属主
 RUN useradd --create-home desk && mkdir -p /data/attachments && chown -R desk /app /data

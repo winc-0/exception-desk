@@ -70,6 +70,7 @@ export interface TicketEvent {
     approved_cents?: number;
     paid_cents?: number;
     rejection_code?: RejectionCode;
+    kind?: "brief";
   };
   created_at: string;
 }
@@ -226,6 +227,36 @@ export const TYPE_LABELS: Record<TicketType, string> = {
   address_change: "改址",
   other: "其他",
 };
+
+export interface BriefItem {
+  code: string;
+  name: string;
+  why: string;
+  cites: string[];
+}
+
+export interface BriefSource {
+  id: string;
+  title: string;
+  url: string;
+  tier: string;
+  version_date: string;
+  is_weak: boolean;
+}
+
+export interface ClaimBrief {
+  source: "model" | "rules";
+  likely_reasons: BriefItem[];
+  evidence_gaps: BriefItem[];
+  counter_points: BriefItem[];
+  sources: BriefSource[];
+  carrier_terms: {
+    title: string;
+    source_tier: string;
+    is_weak_source: boolean;
+    terms: { label: string; value: string }[];
+  } | null;
+}
 
 export interface RowError {
   line: number;

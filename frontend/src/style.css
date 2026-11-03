@@ -511,6 +511,36 @@ dd:last-child {
   margin: 0;
 }
 
+.terms {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.brief-group h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.brief-group ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.brief-group summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.cites a {
+  margin-left: 6px;
+  font-size: 12px;
+}
+
 .risks {
   margin: 0;
   padding: 8px 12px 8px 28px;

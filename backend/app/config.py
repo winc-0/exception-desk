@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = None
     llm_model: str = ""
     llm_timeout_seconds: float = 30
+    embedding_model: str = "text-embedding-v3"
+    embedding_dimensions: int = 512
     ai_hourly_limit: int = 30
 
     @field_validator("llm_api_key", mode="before")

@@ -292,6 +292,7 @@ class TicketAiDraft(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
     ticket_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
     requested_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    kind: Mapped[str] = mapped_column(Text, server_default=text("'reply'"))
     status: Mapped[str] = mapped_column(Text, server_default=text("'generating'"))
     source: Mapped[str | None] = mapped_column(Text)
     model: Mapped[str] = mapped_column(Text, server_default=text("''"))

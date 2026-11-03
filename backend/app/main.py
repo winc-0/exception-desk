@@ -2,15 +2,45 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.ai.kb import Retriever
 from app.config import Settings, get_settings
 from app.routers import ai, attachments, auth, claims, members, tickets
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def build_chat_model(settings: Settings) -> ChatOpenAI | None:
+    if not (settings.llm_api_key and settings.llm_model):
+        return None
+    return ChatOpenAI(
+        model=settings.llm_model,
+        api_key=settings.llm_api_key,
+        base_url=settings.llm_base_url or None,
+        timeout=settings.llm_timeout_seconds,
+        max_retries=1,
+        temperature=0.2,
+    )
+
+
+def build_embeddings(settings: Settings) -> OpenAIEmbeddings | None:
+    if not (settings.llm_api_key and settings.embedding_model):
+        return None
+    return OpenAIEmbeddings(
+        model=settings.embedding_model,
+        dimensions=settings.embedding_dimensions,
+        api_key=settings.llm_api_key,
+        base_url=settings.llm_base_url or None,
+        timeout=settings.llm_timeout_seconds,
+        max_retries=1,
+        # 百炼的接口只接受字符串，不接受 token 数组，每批最多 10 条
+        check_embedding_ctx_length=False,
+        chunk_size=10,
+    )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -28,16 +58,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # commit 后不让对象过期：提交后 RLS 的租户设置已失效，不能再回库刷新
     app.state.sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
 
-    app.state.chat_model = None
-    if settings.llm_api_key and settings.llm_model:
-        app.state.chat_model = ChatOpenAI(
-            model=settings.llm_model,
-            api_key=settings.llm_api_key,
-            base_url=settings.llm_base_url or None,
-            timeout=settings.llm_timeout_seconds,
-            max_retries=1,
-            temperature=0.2,
-        )
+    app.state.chat_model = build_chat_model(settings)
+    app.state.embeddings = build_embeddings(settings)
+    app.state.retriever = Retriever()
 
     @app.middleware("http")
     async def reject_cross_origin_writes(request: Request, call_next):
