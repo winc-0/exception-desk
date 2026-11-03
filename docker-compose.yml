@@ -37,6 +37,7 @@ services:
       DESK_LLM_BASE_URL: ${DESK_LLM_BASE_URL:-}
       DESK_LLM_API_KEY: ${DESK_LLM_API_KEY:-}
       DESK_LLM_MODEL: ${DESK_LLM_MODEL:-}
+      DESK_EMBEDDING_MODEL: ${DESK_EMBEDDING_MODEL:-text-embedding-v3}
     volumes:
       - attachments:/data/attachments
     depends_on:

@@ -256,6 +256,43 @@ class ClaimSummary(BaseModel):
     rejections: list[RejectionCount]
 
 
+class BriefItemOut(BaseModel):
+    code: str
+    name: str
+    why: str
+    cites: list[str]
+
+
+class BriefSourceOut(BaseModel):
+    id: str
+    title: str
+    url: str
+    tier: str
+    version_date: str
+    is_weak: bool
+
+
+class CarrierTerm(BaseModel):
+    label: str
+    value: str
+
+
+class CarrierTermsOut(BaseModel):
+    title: str
+    source_tier: str
+    is_weak_source: bool
+    terms: list[CarrierTerm]
+
+
+class ClaimBriefOut(BaseModel):
+    source: Literal["model", "rules"]
+    likely_reasons: list[BriefItemOut]
+    evidence_gaps: list[BriefItemOut]
+    counter_points: list[BriefItemOut]
+    sources: list[BriefSourceOut]
+    carrier_terms: CarrierTermsOut | None
+
+
 class AiFeedbackIn(BaseModel):
     verdict: Literal["used", "edited", "rejected"]
 

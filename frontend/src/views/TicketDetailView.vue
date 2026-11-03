@@ -15,6 +15,7 @@ import {
 import { formatTime, formatYuan } from "../format";
 import { can, me } from "../session";
 import AiDraftCard from "./AiDraftCard.vue";
+import ClaimBriefCard from "./ClaimBriefCard.vue";
 import ClaimCard from "./ClaimCard.vue";
 import EvidenceCard from "./EvidenceCard.vue";
 
@@ -87,6 +88,7 @@ function describe(event: TicketEvent): string {
       );
     }
     case "ai_drafted":
+      if (event.data.kind === "brief") return "分析了索赔依据";
       return event.data.source === "model" ? "生成了客户回复草稿（模型）" : "生成了客户回复草稿（模板）";
   }
 }
@@ -197,6 +199,7 @@ watch(
 
       <EvidenceCard :ticket="ticket" @updated="ticket = $event" @stale="load" />
       <ClaimCard v-if="ticket.claim_enabled" :ticket="ticket" @updated="ticket = $event" @stale="load" />
+      <ClaimBriefCard v-if="ticket.can_draft_reply && ticket.claim_enabled" :ticket-id="ticket.id" @finished="load" />
       <AiDraftCard v-if="ticket.can_draft_reply" :ticket-id="ticket.id" @finished="load" />
 
       <div class="card">
