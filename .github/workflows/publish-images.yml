@@ -1,0 +1,32 @@
+name: Publish images
+
+# 内地服务器连不上 Docker Hub，内存也不够构建，所以在这里构建好，推到阿里云镜像仓库
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_PREFIX: ${{ vars.ACR_REGISTRY }}/${{ vars.ACR_NAMESPACE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+      - name: 构建并推送应用镜像
+        run: |
+          for app in backend frontend; do
+            docker build -t "$IMAGE_PREFIX/$app:$GITHUB_SHA" -t "$IMAGE_PREFIX/$app:latest" "./$app"
+            docker push --all-tags "$IMAGE_PREFIX/$app"
+          done
+      - name: 转存数据库镜像
+        run: |
+          docker pull postgres:16-alpine
+          docker tag postgres:16-alpine "$IMAGE_PREFIX/postgres:16-alpine"
+          docker push "$IMAGE_PREFIX/postgres:16-alpine"

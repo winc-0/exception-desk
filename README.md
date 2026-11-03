@@ -274,6 +274,21 @@ docker compose up -d --build
 
 CI 会用生产镜像跑 `scripts/smoke.sh`，检查建公司、登录、建工单、上传 6 MB 文件、下载比对，以及重建 API 容器后文件还在。
 
+### 服务器连不上 Docker Hub 时
+
+先在 GitHub 上手动运行 `Publish images` 工作流，它会构建镜像并推到镜像仓库。工作流需要这些设置：
+
+- 变量：`ACR_REGISTRY`（仓库地址）、`ACR_NAMESPACE`（命名空间）
+- 密钥：`ACR_USERNAME`、`ACR_PASSWORD`
+
+然后在服务器的 `.env` 里把 `DESK_IMAGE_PREFIX` 设为 `仓库地址/命名空间`，登录仓库后拉取并启动：
+
+```bash
+docker login 仓库地址
+docker compose -f docker-compose.yml -f docker-compose.registry.yml pull
+docker compose -f docker-compose.yml -f docker-compose.registry.yml up -d
+```
+
 ## 已知限制
 
 - 失败锁定按账号计算，别人可以故意输错让某个账号暂时无法登录。上线前还要在反向代理层按 IP 限流。

@@ -1,0 +1,16 @@
+# 叠加在 docker-compose.yml 上使用：拉取 Publish images 工作流推送的镜像，不在本机构建
+services:
+  db:
+    image: ${DESK_IMAGE_PREFIX:?请在 .env 中设置}/postgres:16-alpine
+
+  migrate:
+    build: !reset null
+    image: ${DESK_IMAGE_PREFIX:?请在 .env 中设置}/backend:${DESK_IMAGE_TAG:-latest}
+
+  api:
+    build: !reset null
+    image: ${DESK_IMAGE_PREFIX:?请在 .env 中设置}/backend:${DESK_IMAGE_TAG:-latest}
+
+  web:
+    build: !reset null
+    image: ${DESK_IMAGE_PREFIX:?请在 .env 中设置}/frontend:${DESK_IMAGE_TAG:-latest}
