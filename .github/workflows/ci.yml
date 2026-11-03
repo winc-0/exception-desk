@@ -47,6 +47,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
+      - run: npm test
       - run: npm run build
 
   # 用生产镜像把整条链路跑一遍：Nginx、API、迁移、RLS 角色、附件存储卷

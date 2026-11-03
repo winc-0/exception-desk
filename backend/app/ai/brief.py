@@ -150,10 +150,19 @@ def accept_for(carrier: str | None):
 
 
 def retrieve(
-    retriever: Retriever, facts: BriefInput, query_vector: list[float] | None, k: int = 8
+    retriever: Retriever,
+    facts: BriefInput,
+    query_vector: list[float] | None,
+    k: int = 8,
+    exclude: str | None = None,
 ) -> list[Hit]:
+    """exclude 只给评测用：回放语料里的案例时，不能把它自己检索出来。"""
+    allowed = accept_for(facts.carrier)
     hits = retriever.search(
-        facts.query(), k=k, query_vector=query_vector, accept=accept_for(facts.carrier)
+        facts.query(),
+        k=k,
+        query_vector=query_vector,
+        accept=lambda doc: doc.id != exclude and allowed(doc),
     )
     # 对应承运商的条款一定要带上，它决定限额和时效，不能指望检索碰巧排在前面
     terms = match_carrier_terms(facts.carrier, retriever.docs)

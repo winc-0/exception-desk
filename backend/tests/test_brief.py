@@ -289,12 +289,28 @@ async def test_prompt_contains_sources_but_not_held_out_cases(hits):
 
 
 def test_eval_input_does_not_leak_the_answer():
-    for doc in eval_docs():
+    for doc in eval_docs("all"):
         facts = case_input(doc)
         text = facts.describe() + facts.query()
-        assert doc.case["holding"] not in text
+        assert doc.case.get("holding", "\0") not in text
         assert doc.text not in text
         assert "法院" not in facts.description
+
+
+def test_replay_cases_are_scorable_and_separate_from_held_out():
+    replay = eval_docs("replay")
+    assert len(replay) == 19
+    assert all(gold(doc)["拒赔理由"] for doc in replay)
+    assert not {doc.id for doc in replay} & {doc.id for doc in eval_docs()}
+    assert all(case_input(doc).type in ("破损", "丢件", "超时") for doc in replay)
+
+
+def test_replay_never_retrieves_the_case_itself(retriever):
+    for doc in eval_docs("replay"):
+        facts = case_input(doc)
+        assert doc.id in {hit.doc.id for hit in retrieve(retriever, facts, None, 51)}
+        kept = retrieve(retriever, facts, None, 51, exclude=doc.id)
+        assert doc.id not in {hit.doc.id for hit in kept}
 
 
 def test_score_computes_precision_and_recall():
