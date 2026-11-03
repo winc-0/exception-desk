@@ -62,6 +62,9 @@ jobs:
       DESK_BOOTSTRAP_PASSWORD: ci-only-password
     steps:
       - uses: actions/checkout@v4
+      - run: docker compose -f docker-compose.yml -f docker-compose.registry.yml config --quiet
+        env:
+          DESK_IMAGE_PREFIX: registry.example.com/ci
       - run: docker compose up -d --build
       - run: sh scripts/smoke.sh
       - if: failure()
