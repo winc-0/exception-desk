@@ -24,6 +24,8 @@ def build_chat_model(settings: Settings) -> ChatOpenAI | None:
         timeout=settings.llm_timeout_seconds,
         max_retries=1,
         temperature=0.2,
+        # LangChain 只在 OpenAI 官方地址上默认开启，换成百炼后流式调用拿不到用量
+        stream_usage=True,
     )
 
 

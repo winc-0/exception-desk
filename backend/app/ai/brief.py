@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from app.ai.kb import Doc, Hit, Retriever, load_taxonomy, match_carrier_terms
 
-PROMPT_VERSION = "brief-v5"
+PROMPT_VERSION = "brief-v6"
 MAX_ATTEMPTS = 2
 MAX_ITEMS = 4
 TOTAL_TIMEOUT_SECONDS = 60
@@ -61,6 +61,7 @@ SYSTEM_PROMPT = """你在帮仓配公司的客服准备向承运商索赔的内�
 - 紧扣工单情况判断，不同的工单结论应该不同，不要每次都列同样几项。
 - 每一项都写一句 why，说明工单里的哪个事实让它适用，并在 cites 里写资料编号。
   cites 只能写资料编号，不能写 R、E、K 开头的代码。
+- 代码后面括号里列了可引用的资料时，cites 至少要有其中一份。
 - 只能依据给定的资料。why 不要写别的案子的金额，也不要拿不同情形的案例类推。
 - why 用一句话写清，尽量 60 字以内。R、E、K 代码只放在 code 里，why 里不要出现。
 - 工单没有提到的事实不要假设，比如没有证据显示操作粗暴，就不要主张重大过失。
@@ -177,13 +178,28 @@ def format_sources(hits: list[Hit]) -> str:
     )
 
 
-def _codes_prompt() -> str:
+def _labeled_sources(hits: list[Hit]) -> dict[str, list[str]]:
+    """这次检索到的资料里，每个拒赔理由和反驳代码有哪些资料涉及。"""
+    sources: dict[str, list[str]] = {}
+    for hit in hits:
+        for code in (*hit.doc.reasons, *hit.doc.counters):
+            sources.setdefault(code, []).append(hit.doc.id)
+    return sources
+
+
+def _codes_prompt(hits: list[Hit]) -> str:
+    """没有资料涉及的理由和反驳不列出来，模型既无从引用，也不该凭定义下结论。"""
     taxonomy = load_taxonomy()
-    return "\n".join(
-        f"{code} {item['name']}：{item['definition']}"
-        for group in ("reasons", "evidence", "counters")
-        for code, item in taxonomy[group].items()
-    )
+    sources = _labeled_sources(hits)
+    lines = []
+    for group in ("reasons", "evidence", "counters"):
+        for code, item in taxonomy[group].items():
+            line = f"{code} {item['name']}：{item['definition']}"
+            if group == "evidence":
+                lines.append(line)
+            elif code in sources:
+                lines.append(f"{line}（可引用 {'、'.join(sources[code])}）")
+    return "\n".join(lines)
 
 
 def parse_brief(text: str) -> Brief | None:
@@ -197,6 +213,7 @@ def parse_brief(text: str) -> Brief | None:
 def validate_brief(brief: Brief, facts: BriefInput, hits: list[Hit]) -> list[str]:
     taxonomy = load_taxonomy()
     docs = {hit.doc.id: hit.doc for hit in hits}
+    labeled = _labeled_sources(hits)
     ticket_text = facts.describe()
     problems = []
     groups = (
@@ -215,6 +232,16 @@ def validate_brief(brief: Brief, facts: BriefInput, hits: list[Hit]) -> list[str
             unknown = [cite for cite in item.cites if cite not in docs]
             if unknown:
                 problems.append(f"{item.code} 引用了不存在的资料 {'、'.join(unknown)}")
+            # 资料存在不代表支持这句话。证据项没有按资料标注，这里只能核对理由和反驳
+            if (
+                name != "evidence_gaps"
+                and item.code in allowed
+                and item.cites
+                and not set(item.cites) & set(labeled.get(item.code, ()))
+            ):
+                usable = "、".join(labeled.get(item.code, ()))
+                hint = f"请改为引用 {usable}" if usable else "请删掉这一项"
+                problems.append(f"{item.code} 引用的资料不涉及这一项，{hint}")
             code_in_text = _LABEL_CODE.search(item.why)
             if code_in_text:
                 problems.append(f"{item.code} 的说明里不要出现分类代码 {code_in_text.group()}")
@@ -352,7 +379,7 @@ def build_graph(model: BaseChatModel, facts: BriefInput, hits: list[Hit]):
 
 def initial_state(facts: BriefInput, hits: list[Hit]) -> BriefState:
     prompt = (
-        f"可选代码：\n{_codes_prompt()}\n\n工单情况：\n{facts.describe()}\n\n"
+        f"可选代码：\n{_codes_prompt(hits)}\n\n工单情况：\n{facts.describe()}\n\n"
         f"资料：\n{format_sources(hits)}"
     )
     return {
