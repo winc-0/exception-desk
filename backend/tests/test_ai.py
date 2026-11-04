@@ -10,11 +10,13 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 from sqlalchemy import text
 
 from app.ai.facts import ClaimFacts, Facts, redact, risks, template_reply
 from app.ai.graph import MAX_TOOL_ROUNDS, PROMPT_VERSION
 from app.ai.validator import validate
+from app.main import build_chat_model
 from evals.run import load_cases, run_case
 from tests.conftest import PASSWORD, Member, set_tenant
 
@@ -519,6 +521,18 @@ async def test_real_openai_client_streams_tool_calls_and_tokens(app, client, mem
         query = text("SELECT input_tokens, output_tokens FROM ticket_ai_drafts")
         tokens = (await connection.execute(query)).one()
     assert tokens == (11, 7)
+
+
+def test_chat_model_asks_for_streaming_usage_on_custom_base_url(app):
+    """上面的用例自己开了 stream_usage，线上的配置要单独确认。"""
+    settings = app.state.settings.model_copy(
+        update={
+            "llm_api_key": SecretStr("test-key"),
+            "llm_model": "test-model",
+            "llm_base_url": "http://llm.test/v1",
+        }
+    )
+    assert build_chat_model(settings).stream_usage is True
 
 
 def test_migration_round_trip(db_urls):

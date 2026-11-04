@@ -3,6 +3,8 @@ import json
 from dataclasses import replace
 
 import pytest
+from langchain_core.messages import AIMessage
+from sqlalchemy import text
 
 from app.ai.brief import (
     Brief,
@@ -27,6 +29,7 @@ from app.ai.kb import (
     tokenize,
 )
 from evals.run_brief import case_input, eval_docs, gold, predicted, score
+from tests.conftest import set_tenant
 from tests.test_ai import ScriptedModel
 
 PNG = b"\x89PNG\r\n\x1a\n"
@@ -123,7 +126,7 @@ def test_unknown_carrier_gets_no_carrier_terms(retriever):
     assert accept_for(None)(match_carrier_terms("顺丰")) is False
 
 
-def _valid(code="R05", why="外包装完好时承运商常这样主张", cites=("T-SF",)):
+def _valid(code="R03", why="价值证明不足时承运商常这样主张", cites=("T-SF",)):
     return BriefItem(code=code, why=why, cites=list(cites))
 
 
@@ -159,11 +162,28 @@ def test_validate_accepts_grounded_brief(hits):
         (Brief(likely_reasons=[_valid(why="如 C99 所示")]), {}, "不存在"),
         (Brief(counter_points=[_valid("K06", "可主张保价费", ("L04",))]), {}, "K06"),
         (Brief(likely_reasons=[_valid() for _ in range(5)]), {}, "最多"),
+        (Brief(likely_reasons=[_valid("R03", cites=("L04",))]), {}, "不涉及"),
+        (Brief(counter_points=[_valid("K01", "可主张未提示", ("T-SF",))]), {}, "不涉及"),
     ],
 )
 def test_validate_rejects(brief, facts, expected, hits):
     problems = validate_brief(brief, inputs(**facts), hits)
     assert any(expected in problem for problem in problems), problems
+
+
+def test_validate_rejects_citation_that_does_not_support_the_claim():
+    """试用时发现的：K05 引了一篇辟谣说明，资料确实存在，内容却完全无关。"""
+    docs = {doc.id: doc for doc in searchable_docs()}
+    hits = [Hit(docs[i], 1.0, ("keyword",)) for i in ("L10", "L06")]
+    brief = Brief(counter_points=[_valid("K05", "合理期限内提出仍可获支持", ("L10",))])
+    assert validate_brief(brief, inputs(), hits) == ["K05 引用的资料不涉及这一项，请删掉这一项"]
+    brief = Brief(counter_points=[_valid("K03", "快递企业不适用三倍上限", ("L10",))])
+    assert validate_brief(brief, inputs(), hits) == ["K03 引用的资料不涉及这一项，请改为引用 L06"]
+
+
+def test_validate_needs_only_one_supporting_citation(hits):
+    brief = Brief(likely_reasons=[_valid("R01", cites=("L04", "T-SF"))])
+    assert validate_brief(brief, inputs(), hits) == []
 
 
 def test_validate_accepts_numbers_from_cited_source(hits):
@@ -234,7 +254,7 @@ def test_rule_brief_respects_insured(retriever):
 
 GOOD = json.dumps(
     {
-        "likely_reasons": [{"code": "R05", "why": "外包装完好时常这样主张", "cites": ["T-SF"]}],
+        "likely_reasons": [{"code": "R03", "why": "价值证明不足时常这样主张", "cites": ["T-SF"]}],
         "evidence_gaps": [],
         "counter_points": [{"code": "K01", "why": "可主张未提示", "cites": ["L04"]}],
     },
@@ -243,12 +263,12 @@ GOOD = json.dumps(
 
 
 async def test_model_brief_retries_then_passes(hits):
-    bad = json.dumps({"likely_reasons": [{"code": "R05", "why": "一律赔", "cites": ["T-SF"]}]})
+    bad = json.dumps({"likely_reasons": [{"code": "R03", "why": "一律赔", "cites": ["T-SF"]}]})
     model = ScriptedModel(script=[bad, GOOD])
     brief, source, _, attempts = await generate_brief(model, inputs(), hits)
     assert source == "model"
     assert attempts == 2
-    assert brief.likely_reasons[0].code == "R05"
+    assert brief.likely_reasons[0].code == "R03"
     assert "绝对结论" in model.seen[-1][-1].content
 
 
@@ -286,6 +306,10 @@ async def test_prompt_contains_sources_but_not_held_out_cases(hits):
     prompt = model.seen[-1][1].content
     assert "[T-SF]" in prompt
     assert "[C05]" not in prompt
+    assert "（可引用 T-SF）" in prompt
+    assert "R15 " not in prompt
+    assert "K05 " not in prompt
+    assert "E01 " in prompt
 
 
 def test_eval_input_does_not_leak_the_answer():
@@ -371,6 +395,33 @@ async def test_api_returns_rule_brief_with_sources_and_terms(client):
     detail = (await client.get(f"/api/tickets/{ticket['id']}")).json()
     assert detail["events"][-1]["kind"] == "ai_drafted"
     assert detail["events"][-1]["data"]["kind"] == "brief"
+
+
+def _with_usage(content: str) -> AIMessage:
+    return AIMessage(
+        content,
+        usage_metadata={"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
+        response_metadata={"model_name": "test-model"},
+    )
+
+
+@pytest.mark.parametrize(
+    ("script", "source"),
+    [
+        (["不是 JSON", '{"likely_reasons": []}'], "model"),
+        (["不是 JSON", "还不是 JSON"], "rules"),
+    ],
+)
+async def test_api_records_token_usage(app, client, member, app_engine, script, source):
+    """退回规则版时，模型已经花掉的用量也要记下来。"""
+    app.state.chat_model = ScriptedModel(script=[_with_usage(step) for step in script])
+    ticket = await _ticket(client)
+    body = (await client.post(f"/api/tickets/{ticket['id']}/ai/claim-brief")).json()
+    assert body["source"] == source
+    async with app_engine.connect() as connection:
+        await set_tenant(connection, member.tenant_id)
+        query = text("SELECT input_tokens, output_tokens FROM ticket_ai_drafts")
+        assert (await connection.execute(query)).one() == (200, 40)
 
 
 async def test_api_uses_collected_evidence(client):

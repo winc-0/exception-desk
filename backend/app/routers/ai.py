@@ -8,6 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
+from langchain_core.callbacks import get_usage_metadata_callback
 from langchain_core.language_models import BaseChatModel
 from sqlalchemy import func, select, update
 
@@ -298,7 +299,9 @@ async def create_claim_brief(
         except Exception:  # 向量服务不可用时只走关键词，功能还能用
             query_vector = None
     hits = claim_brief.retrieve(retriever, inputs, query_vector)
-    result, source, reason, attempts = await claim_brief.generate_brief(model, inputs, hits)
+    # 用回调统计，超时或校验失败退回规则版时，已经花掉的用量也能记下来
+    with get_usage_metadata_callback() as usage:
+        result, source, reason, attempts = await claim_brief.generate_brief(model, inputs, hits)
     output = _brief_out(result, source, hits, inputs.carrier)
 
     await set_tenant(session, ctx.tenant_id)
@@ -311,6 +314,8 @@ async def create_claim_brief(
             draft=output.model_dump_json(),
             fallback_reason=reason[:500],
             attempts=attempts,
+            input_tokens=sum(item["input_tokens"] for item in usage.usage_metadata.values()),
+            output_tokens=sum(item["output_tokens"] for item in usage.usage_metadata.values()),
             latency_ms=int((time.perf_counter() - started) * 1000),
             finished_at=func.now(),
         )
